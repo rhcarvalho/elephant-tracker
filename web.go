@@ -9,11 +9,12 @@ import (
 	"labix.org/v2/mgo/bson"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 )
 
-// Session ...
+// Session stores information about a XMPPVOX session.
 type Session struct {
 	Id             bson.ObjectId `bson:"_id"`
 	CreatedAt      time.Time     `bson:"created_at"`
@@ -21,9 +22,29 @@ type Session struct {
 	JID            string        `bson:"jid"`
 	MachineId      string        `bson:"machine_id"`
 	XMPPVOXVersion string        `bson:"xmppvox_ver"`
-	Request        *http.Request `bson:"req"`
+	Request        *HttpRequest  `bson:"req"`
 }
 
+// HttpRequest is a subset of http.Request.
+type HttpRequest struct {
+	Method string
+	URL    *url.URL
+	Header http.Header
+	//Body io.ReadCloser
+	//ContentLength int64
+	//TransferEncoding []string
+	//Close bool
+	Host string
+	Form url.Values
+	//PostForm url.Values
+	//MultipartForm *multipart.Form
+	//Trailer Header
+	RemoteAddr string
+	//RequestURI string
+	//TLS *tls.ConnectionState
+}
+
+// SessionAck represents an acknowledge message about a Session.
 type SessionAck struct {
 	Id     bson.ObjectId `json:"session_id,omitempty"`
 	Status string        `json:"status"`
@@ -54,7 +75,7 @@ func writeAckResponse(w http.ResponseWriter, sessionId bson.ObjectId, statusOK i
 	writeJSONResponse(w, &ack)
 }
 
-func NewSession(jid, machineId, xmppvoxVersion string, r *http.Request) *Session {
+func NewSession(jid, machineId, xmppvoxVersion string, r *HttpRequest) *Session {
 	id := bson.NewObjectId()
 	return &Session{
 		Id:             id,
@@ -91,7 +112,14 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Retry with POST parameters: jid, machine_id, xmppvox_version", http.StatusBadRequest)
 		return
 	}
-	s := NewSession(jid, machineId, xmppvoxVersion, r)
+	s := NewSession(jid, machineId, xmppvoxVersion, &HttpRequest{
+		Method:     r.Method,
+		URL:        r.URL,
+		Header:     r.Header,
+		Host:       r.Host,
+		Form:       r.Form,
+		RemoteAddr: r.RemoteAddr,
+	})
 	err := InsertSession(s)
 	if err != nil {
 		// Try to reestablish a connection if MongoDB was unreachable.
