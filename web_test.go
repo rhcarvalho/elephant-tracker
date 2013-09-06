@@ -140,13 +140,24 @@ func (s *WebAPISuite) TestNewSession(c *C) {
 }
 
 func (s *WebAPISuite) TestNewSessionMissingFields(c *C) {
-	const (
-		jid            = ""
-		machineId      = "00:26:cc:18:be:14"
-		xmppvoxVersion = "1.0"
-	)
-	_, err := s.newSession(jid, machineId, xmppvoxVersion)
-	c.Assert(err.Error(), Matches, "400 .*")
+	countBefore, err := db.C("sessions").Find(nil).Count()
+	c.Assert(err, IsNil)
+	type TestCase struct {
+		JID, MachineId, XMPPVOXVersion string
+	}
+	for _, tc := range []TestCase{
+		TestCase{"", "00:26:cc:18:be:14", "1.0"},
+		TestCase{"testuser@server.org", "", "1.0"},
+		TestCase{"testuser@server.org", "00:26:cc:18:be:14", ""},
+		TestCase{"testuser@server.org", "", ""},
+		TestCase{"", "", ""},
+	} {
+		_, err := s.newSession(tc.JID, tc.MachineId, tc.XMPPVOXVersion)
+		c.Assert(err.Error(), Matches, "400 .*")
+	}
+	countAfter, err := db.C("sessions").Find(nil).Count()
+	c.Assert(err, IsNil)
+	c.Check(countAfter, Equals, countBefore)
 }
 
 func (s *WebAPISuite) TestCloseSession(c *C) {
