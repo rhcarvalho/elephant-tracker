@@ -71,6 +71,17 @@ func InsertSession(s *Session) error {
 	return coll.Insert(s)
 }
 
+func CloseSession(id bson.ObjectId) (info *mgo.ChangeInfo, err error) {
+	coll := db.C("sessions")
+	docs := []*Session{&Session{}} // what should I use here?!
+	updateClosedTime := mgo.Change{
+		Update:    bson.M{"$set": bson.M{"closed_at": bson.Now()}},
+		ReturnNew: true,
+	}
+	return coll.Find(bson.M{"_id": id, "closed_at": time.Time{}}).
+		Apply(updateClosedTime, &docs)
+}
+
 // NewSessionHandler ...
 func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 	jid := r.PostFormValue("jid")
@@ -101,29 +112,8 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := bson.ObjectIdHex(idHex)
-	coll := db.C("sessions")
-	docs := []*Session{&Session{}} // what should I use here?!
-	updateClosedTime := mgo.Change{
-		Update:    bson.M{"$set": bson.M{"closed_at": bson.Now()}},
-		ReturnNew: true,
-	}
-	ack := SessionAck{}
-	_, err := coll.Find(bson.M{"_id": id, "closed_at": time.Time{}}).
-		Apply(updateClosedTime, &docs)
-	switch err {
-	case nil:
-		ack.Id = id
-		ack.Status = "ok"
-	case mgo.ErrNotFound:
-		//...
-		fallthrough
-	default:
-		// .... trying to close a closed session, etc
-		ack.Status = "fail"
-		log.Println("[MongoDB] error:", err)
-	}
-	log.Println("doc: ", docs[0])
-	writeJSONResponse(w, &ack)
+	_, err := CloseSession(id)
+	writeAckResponse(w, id, http.StatusOK, err)
 }
 
 // ErrorHandler ...
