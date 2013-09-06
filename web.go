@@ -40,6 +40,37 @@ func writeJSONResponse(w http.ResponseWriter, obj interface{}) (int, error) {
 	return w.Write(b)
 }
 
+func writeAckResponse(w http.ResponseWriter, sessionId bson.ObjectId, statusOK int, err error) {
+	ack := SessionAck{}
+	if err != nil {
+		ack.Status = "fail"
+		w.WriteHeader(http.StatusInternalServerError)
+		log.Println(err)
+	} else {
+		ack.Id = sessionId
+		ack.Status = "ok"
+		w.WriteHeader(statusOK)
+	}
+	writeJSONResponse(w, &ack)
+}
+
+func NewSession(jid, machineId, xmppvoxVersion string, r *http.Request) *Session {
+	id := bson.NewObjectId()
+	return &Session{
+		Id:             id,
+		CreatedAt:      bson.Now(),
+		JID:            jid,
+		MachineId:      machineId,
+		XMPPVOXVersion: xmppvoxVersion,
+		Request:        r,
+	}
+}
+
+func InsertSession(s *Session) error {
+	coll := db.C("sessions")
+	return coll.Insert(s)
+}
+
 // NewSessionHandler ...
 func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 	jid := r.PostFormValue("jid")
@@ -49,29 +80,13 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Retry with POST parameters: jid, machine_id, xmppvox_version", http.StatusBadRequest)
 		return
 	}
-	coll := db.C("sessions")
-	id := bson.NewObjectId()
-	s := Session{
-		Id:             id,
-		CreatedAt:      bson.Now(),
-		JID:            jid,
-		MachineId:      machineId,
-		XMPPVOXVersion: xmppvoxVersion,
-		Request:        r,
-	}
-	ack := SessionAck{}
-	err := coll.Insert(&s)
+	s := NewSession(jid, machineId, xmppvoxVersion, r)
+	err := InsertSession(s)
 	if err != nil {
-		ack.Status = "fail"
-		log.Println("[MongoDB]", err)
 		// Try to reestablish a connection if MongoDB was unreachable.
 		go db.Session.Refresh()
-	} else {
-		ack.Id = id
-		ack.Status = "ok"
-		w.WriteHeader(http.StatusCreated)
 	}
-	writeJSONResponse(w, &ack)
+	writeAckResponse(w, s.Id, http.StatusCreated, err)
 }
 
 // CloseSessionHandler ...
