@@ -163,6 +163,17 @@ func DownloadUpdateHandler(w http.ResponseWriter, r *http.Request) {
 var configPath = flag.String("config", "config.json", "path to a configuration file in JSON format")
 var db *mgo.Database
 
+func APIHandler() http.Handler {
+	// API v1
+	r := mux.NewRouter().PathPrefix("/1").Subrouter()
+	r.HandleFunc("/session/new", NewSessionHandler).Methods("POST")
+	r.HandleFunc("/session/close", CloseSessionHandler).Methods("POST")
+	r.HandleFunc("/error", ErrorHandler).Methods("POST")
+	r.HandleFunc("/update/last", LastUpdateHandler).Methods("GET")
+	r.HandleFunc("/update/download", DownloadUpdateHandler).Methods("GET")
+	return r
+}
+
 func main() {
 	flag.Parse()
 	config, err := ConfigOpen(*configPath)
@@ -179,18 +190,9 @@ func main() {
 
 	db = session.DB(config.Mongo.DB)
 
-	// API v1
-	r := mux.NewRouter().PathPrefix("/1").Subrouter()
-	r.HandleFunc("/session/new", NewSessionHandler).Methods("POST")
-	r.HandleFunc("/session/close", CloseSessionHandler).Methods("POST")
-	r.HandleFunc("/error", ErrorHandler).Methods("POST")
-	r.HandleFunc("/update/last", LastUpdateHandler).Methods("GET")
-	r.HandleFunc("/update/download", DownloadUpdateHandler).Methods("GET")
-	http.Handle("/", r)
-
-	address := fmt.Sprintf("%s:%d", config.Http.Host, config.Http.Port)
-	log.Printf("serving at %s\n", address)
-	err = http.ListenAndServe(address, nil)
+	addr := fmt.Sprintf("%s:%d", config.Http.Host, config.Http.Port)
+	log.Printf("serving at %s\n", addr)
+	err = http.ListenAndServe(addr, APIHandler())
 	if err != nil {
 		log.Fatal(err)
 	}
