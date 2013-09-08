@@ -75,9 +75,8 @@ type HttpRequest struct {
 }
 
 func NewSession(jid, machineId, xmppvoxVersion string, r *HttpRequest) *Session {
-	id := bson.NewObjectId()
 	return &Session{
-		Id:             id,
+		Id:             bson.NewObjectId(),
 		CreatedAt:      bson.Now(),
 		JID:            jid,
 		MachineId:      machineId,
