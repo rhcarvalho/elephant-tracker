@@ -131,7 +131,7 @@ func (s *WebAPISuite) TestNewSession(c *C) {
 	session := &Session{}
 	err = db.C("sessions").FindId(nsAck.Id).One(session)
 	c.Assert(err, IsNil)
-	c.Check(session.CreatedAt, NotNil)
+	c.Check(session.CreatedAt.IsZero(), Equals, false)
 	c.Check(session.ClosedAt.IsZero(), Equals, true)
 	c.Check(session.JID, Equals, jid)
 	c.Check(session.MachineId, Equals, machineId)
