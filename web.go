@@ -92,13 +92,13 @@ func InsertSession(s *Session) error {
 
 func CloseSession(id bson.ObjectId) (info *mgo.ChangeInfo, err error) {
 	coll := db.C("sessions")
-	docs := []*Session{&Session{}} // what should I use here?!
+	session := &Session{}
 	updateClosedTime := mgo.Change{
 		Update:    bson.M{"$set": bson.M{"closed_at": bson.Now()}},
 		ReturnNew: true,
 	}
 	return coll.Find(bson.M{"_id": id, "closed_at": time.Time{}}).
-		Apply(updateClosedTime, &docs)
+		Apply(updateClosedTime, &session)
 }
 
 // NewSessionHandler ...
