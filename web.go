@@ -139,7 +139,7 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !bson.IsObjectIdHex(idHex) {
-		http.Error(w, "Retry with valid session id", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Invalid session id %s", idHex), http.StatusBadRequest)
 		return
 	}
 	id := bson.ObjectIdHex(idHex)
