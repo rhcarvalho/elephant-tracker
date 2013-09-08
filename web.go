@@ -1,3 +1,35 @@
+/*
+
+API v1 documentation
+
+  HTTP_METHOD URL (params, ...)
+
+  POST /session/new (jid, machine_id, xmppvox_version)
+
+Registers a new XMPPVOX session. All params must be non-empty.
+Returns the ID of the session.
+
+  POST /session.close (id)
+
+Closes an existing XMPPVOX session.
+Returns the ID of the session.
+
+  POST /error (id, error)
+
+Attaches an error log message to an existing session.
+Returns the ID of the session.
+
+  GET /update/last ()
+
+Returns the number of the lastest release of XMPPVOX.
+
+  GET /update/download ()
+
+Returns the lastest release of XMPPVOX (binary).
+
+Note: All responses have one of 200, 400 or 500 status code.
+
+*/
 package main
 
 import (
@@ -163,6 +195,7 @@ func DownloadUpdateHandler(w http.ResponseWriter, r *http.Request) {
 var configPath = flag.String("config", "config.json", "path to a configuration file in JSON format")
 var db *mgo.Database
 
+// APIHandler returns a http.Handler that matches URLs of the latest API.
 func APIHandler() http.Handler {
 	// API v1
 	r := mux.NewRouter().PathPrefix("/1").Subrouter()
