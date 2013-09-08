@@ -53,6 +53,7 @@ type Session struct {
 	MachineId      string        `bson:"machine_id"`
 	XMPPVOXVersion string        `bson:"xmppvox_ver"`
 	Request        *HttpRequest  `bson:"req"`
+	Errors         []string      `bson:"errors,omitempty"`
 }
 
 // HttpRequest is a subset of http.Request.
@@ -99,6 +100,17 @@ func CloseSession(id bson.ObjectId) (info *mgo.ChangeInfo, err error) {
 	}
 	return coll.Find(bson.M{"_id": id, "closed_at": time.Time{}}).
 		Apply(updateClosedTime, &session)
+}
+
+func AppendError(id bson.ObjectId, msg string) (info *mgo.ChangeInfo, err error) {
+	coll := db.C("sessions")
+	session := &Session{}
+	appendError := mgo.Change{
+		Update:    bson.M{"$push": bson.M{"errors": msg}},
+		ReturnNew: true,
+	}
+	return coll.Find(bson.M{"_id": id, "closed_at": time.Time{}}).
+		Apply(appendError, &session)
 }
 
 // NewSessionHandler ...
@@ -158,8 +170,29 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 
 // ErrorHandler ...
 func ErrorHandler(w http.ResponseWriter, r *http.Request) {
-	coll := db.C("errors")
-	_ = coll
+	idHex := r.PostFormValue("id")
+	msg := r.PostFormValue("error")
+	if idHex == "" || msg == "" {
+		http.Error(w, "Retry with POST parameters: id, error", http.StatusBadRequest)
+		return
+	}
+	if !bson.IsObjectIdHex(idHex) {
+		http.Error(w, fmt.Sprintf("Invalid session id %s", idHex), http.StatusBadRequest)
+		return
+	}
+	id := bson.ObjectIdHex(idHex)
+	_, err := AppendError(id, msg)
+	switch err {
+	case nil:
+		fmt.Fprintln(w, idHex)
+	case mgo.ErrNotFound:
+		http.Error(w, fmt.Sprintf("Session %s does not exist or is already closed", idHex), http.StatusBadRequest)
+	default:
+		http.Error(w, "Failed to append error", http.StatusInternalServerError)
+		log.Println(err)
+		// Try to reestablish a connection if MongoDB was unreachable.
+		go db.Session.Refresh()
+	}
 }
 
 // LastUpdateHandler ...

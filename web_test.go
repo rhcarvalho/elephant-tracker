@@ -111,6 +111,13 @@ func (s *WebAPISuite) closeSession(id bson.ObjectId) (r *Response, err error) {
 	})
 }
 
+func (s *WebAPISuite) appendError(id bson.ObjectId, msg string) (r *Response, err error) {
+	return s.apiPostCall("/1/error", map[string]string{
+		"id":    id.Hex(),
+		"error": msg,
+	})
+}
+
 // ************************ Tests ************************
 
 func (s *WebAPISuite) TestNewSession(c *C) {
@@ -198,4 +205,27 @@ func (s *WebAPISuite) TestCloseSessionAlreadyClosed(c *C) {
 	c.Assert(err, IsNil)
 	closedAtAfter := session.ClosedAt
 	c.Check(closedAtAfter, Equals, closedAtBefore)
+}
+
+func (s *WebAPISuite) TestAppendErrorMessage(c *C) {
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	c.Assert(err, IsNil)
+	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
+	// Append first error
+	r, err := s.appendError(id, "UnicodeDecode error: ...")
+	c.Assert(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusOK)
+	c.Check(r.Body, Equals, nr.Body)
+	session := &Session{}
+	err = db.C("sessions").FindId(id).One(session)
+	c.Assert(err, IsNil)
+	c.Check(session.Errors, DeepEquals, []string{"UnicodeDecode error: ..."})
+	// Append second error
+	r, err = s.appendError(id, "IndexError: ...")
+	c.Assert(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusOK)
+	c.Check(r.Body, Equals, nr.Body)
+	err = db.C("sessions").FindId(id).One(session)
+	c.Assert(err, IsNil)
+	c.Check(session.Errors, DeepEquals, []string{"UnicodeDecode error: ...", "IndexError: ..."})
 }
