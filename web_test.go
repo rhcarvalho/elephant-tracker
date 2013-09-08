@@ -81,12 +81,12 @@ type Response struct {
 	StatusCode int
 }
 
-func (s *WebAPISuite) newSession(jid, machineId, xmppvoxVersion string) (r *Response, err error) {
-	data := url.Values{}
-	data.Set("jid", jid)
-	data.Set("machine_id", machineId)
-	data.Set("xmppvox_version", xmppvoxVersion)
-	resp, err := s.postForm("/1/session/new", data)
+func (s *WebAPISuite) apiPostCall(apiResource string, data map[string]string) (r *Response, err error) {
+	postData := url.Values{}
+	for key, value := range data {
+		postData.Set(key, value)
+	}
+	resp, err := s.postForm(apiResource, postData)
 	r = &Response{StatusCode: resp.StatusCode}
 	if err != nil {
 		return
@@ -97,18 +97,18 @@ func (s *WebAPISuite) newSession(jid, machineId, xmppvoxVersion string) (r *Resp
 	return
 }
 
+func (s *WebAPISuite) newSession(jid, machineId, xmppvoxVersion string) (r *Response, err error) {
+	return s.apiPostCall("/1/session/new", map[string]string{
+		"jid":             jid,
+		"machine_id":      machineId,
+		"xmppvox_version": xmppvoxVersion,
+	})
+}
+
 func (s *WebAPISuite) closeSession(id bson.ObjectId) (r *Response, err error) {
-	data := url.Values{}
-	data.Set("id", id.Hex())
-	resp, err := s.postForm("/1/session/close", data)
-	r = &Response{StatusCode: resp.StatusCode}
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	b, err := ioutil.ReadAll(resp.Body)
-	r.Body = string(b)
-	return
+	return s.apiPostCall("/1/session/close", map[string]string{
+		"id": id.Hex(),
+	})
 }
 
 // ************************ Tests ************************
