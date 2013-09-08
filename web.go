@@ -33,7 +33,6 @@ Note: All responses have one of 200, 400 or 500 status code.
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -42,7 +41,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 )
 
@@ -74,37 +72,6 @@ type HttpRequest struct {
 	RemoteAddr string
 	//RequestURI string
 	//TLS *tls.ConnectionState
-}
-
-// SessionAck represents an acknowledge message about a Session.
-type SessionAck struct {
-	Id     bson.ObjectId `json:"session_id,omitempty"`
-	Status string        `json:"status"`
-}
-
-func writeJSONResponse(w http.ResponseWriter, obj interface{}) (int, error) {
-	b, err := json.Marshal(obj)
-	if err != nil {
-		return 0, err
-	}
-	b = append(b, '\n')
-	w.Header().Set("Content-Length", strconv.FormatInt(int64(len(b)), 10))
-	w.Header().Set("Content-Type", "application/json")
-	return w.Write(b)
-}
-
-func writeAckResponse(w http.ResponseWriter, sessionId bson.ObjectId, statusOK int, err error) {
-	ack := SessionAck{}
-	if err != nil {
-		ack.Status = "fail"
-		w.WriteHeader(http.StatusInternalServerError)
-		log.Println(err)
-	} else {
-		ack.Id = sessionId
-		ack.Status = "ok"
-		w.WriteHeader(statusOK)
-	}
-	writeJSONResponse(w, &ack)
 }
 
 func NewSession(jid, machineId, xmppvoxVersion string, r *HttpRequest) *Session {
@@ -153,11 +120,15 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 		RemoteAddr: r.RemoteAddr,
 	})
 	err := InsertSession(s)
-	if err != nil {
+	switch err {
+	case nil:
+		fmt.Fprintln(w, s.Id.Hex())
+	default:
+		http.Error(w, "Failed to create a new session", http.StatusInternalServerError)
+		log.Println(err)
 		// Try to reestablish a connection if MongoDB was unreachable.
 		go db.Session.Refresh()
 	}
-	writeAckResponse(w, s.Id, http.StatusCreated, err)
 }
 
 // CloseSessionHandler ...
@@ -173,7 +144,17 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	id := bson.ObjectIdHex(idHex)
 	_, err := CloseSession(id)
-	writeAckResponse(w, id, http.StatusOK, err)
+	switch err {
+	case nil:
+		fmt.Fprintln(w, idHex)
+	case mgo.ErrNotFound:
+		http.Error(w, fmt.Sprintf("Session %s does not exist or is already closed", idHex), http.StatusBadRequest)
+	default:
+		http.Error(w, fmt.Sprintf("Failed to close session %s", idHex), http.StatusInternalServerError)
+		log.Println(err)
+		// Try to reestablish a connection if MongoDB was unreachable.
+		go db.Session.Refresh()
+	}
 }
 
 // ErrorHandler ...
