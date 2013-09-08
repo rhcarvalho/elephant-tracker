@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"labix.org/v2/mgo"
@@ -77,44 +76,45 @@ func (s *WebAPISuite) postForm(path string, data url.Values) (resp *http.Respons
 	return http.PostForm(url, data)
 }
 
-func (s *WebAPISuite) newSession(jid, machineId, xmppvoxVersion string) (*SessionAck, error) {
+type Response struct {
+	Ack        *SessionAck
+	StatusCode int
+}
+
+func (s *WebAPISuite) newSession(jid, machineId, xmppvoxVersion string) (r *Response, err error) {
 	data := url.Values{}
 	data.Set("jid", jid)
 	data.Set("machine_id", machineId)
 	data.Set("xmppvox_version", xmppvoxVersion)
 	resp, err := s.postForm("/1/session/new", data)
+	r = &Response{StatusCode: resp.StatusCode}
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, errors.New(resp.Status)
-	}
 	dec := json.NewDecoder(resp.Body)
-	ack := &SessionAck{}
-	if err := dec.Decode(ack); err != io.EOF && err != nil {
-		return nil, err
+	r.Ack = &SessionAck{}
+	if err = dec.Decode(r.Ack); err != io.EOF && err != nil {
+		return
 	}
-	return ack, nil
+	return
 }
 
-func (s *WebAPISuite) closeSession(id bson.ObjectId) (*SessionAck, error) {
+func (s *WebAPISuite) closeSession(id bson.ObjectId) (r *Response, err error) {
 	data := url.Values{}
 	data.Set("id", id.Hex())
 	resp, err := s.postForm("/1/session/close", data)
+	r = &Response{StatusCode: resp.StatusCode}
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return nil, errors.New(resp.Status)
-	}
 	dec := json.NewDecoder(resp.Body)
-	ack := &SessionAck{}
-	if err := dec.Decode(ack); err != io.EOF && err != nil {
-		return nil, err
+	r.Ack = &SessionAck{}
+	if err = dec.Decode(r.Ack); err != io.EOF && err != nil {
+		return
 	}
-	return ack, nil
+	return
 }
 
 // ************************ Tests ************************
@@ -125,11 +125,11 @@ func (s *WebAPISuite) TestNewSession(c *C) {
 		machineId      = "00:26:cc:18:be:14"
 		xmppvoxVersion = "1.0"
 	)
-	nsAck, err := s.newSession(jid, machineId, xmppvoxVersion)
+	r, err := s.newSession(jid, machineId, xmppvoxVersion)
 	c.Assert(err, IsNil)
-	c.Check(nsAck.Status, Equals, "ok")
+	c.Check(r.Ack.Status, Equals, "ok")
 	session := &Session{}
-	err = db.C("sessions").FindId(nsAck.Id).One(session)
+	err = db.C("sessions").FindId(r.Ack.Id).One(session)
 	c.Assert(err, IsNil)
 	c.Check(session.CreatedAt.IsZero(), Equals, false)
 	c.Check(session.ClosedAt.IsZero(), Equals, true)
@@ -161,10 +161,10 @@ func (s *WebAPISuite) TestNewSessionMissingFields(c *C) {
 }
 
 func (s *WebAPISuite) TestCloseSession(c *C) {
-	nsAck, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
 	c.Assert(err, IsNil)
-	c.Assert(nsAck.Status, Equals, "ok")
-	csAck, err := s.closeSession(nsAck.Id)
+	c.Assert(nr.Ack.Status, Equals, "ok")
+	cr, err := s.closeSession(nr.Ack.Id)
 	c.Assert(err, IsNil)
-	c.Check(csAck.Status, Equals, "ok")
+	c.Check(cr.Ack.Status, Equals, "ok")
 }
