@@ -177,3 +177,25 @@ func (s *WebAPISuite) TestCloseSessionInexistent(c *C) {
 	c.Assert(err, IsNil)
 	c.Check(r.StatusCode, Equals, http.StatusBadRequest)
 }
+
+func (s *WebAPISuite) TestCloseSessionAlreadyClosed(c *C) {
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	c.Assert(err, IsNil)
+	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
+	cr, err := s.closeSession(id)
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusOK)
+	session := &Session{}
+	err = db.C("sessions").FindId(id).One(session)
+	c.Assert(err, IsNil)
+	closedAtBefore := session.ClosedAt
+	// Close the same session again
+	cr, err = s.closeSession(id)
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
+	// Check session.ClosedAt value
+	err = db.C("sessions").FindId(id).One(session)
+	c.Assert(err, IsNil)
+	closedAtAfter := session.ClosedAt
+	c.Check(closedAtAfter, Equals, closedAtBefore)
+}
