@@ -171,3 +171,9 @@ func (s *WebAPISuite) TestCloseSession(c *C) {
 	c.Assert(err, IsNil)
 	c.Check(session.ClosedAt.IsZero(), Equals, false)
 }
+
+func (s *WebAPISuite) TestCloseSessionInexistent(c *C) {
+	r, err := s.closeSession(bson.NewObjectId())
+	c.Assert(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusBadRequest)
+}
