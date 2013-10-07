@@ -105,9 +105,10 @@ func (s *WebAPISuite) newSession(jid, machineId, xmppvoxVersion string) (r *Resp
 	})
 }
 
-func (s *WebAPISuite) closeSession(id bson.ObjectId) (r *Response, err error) {
+func (s *WebAPISuite) closeSession(sessionId bson.ObjectId, machineId string) (r *Response, err error) {
 	return s.apiPostCall("/1/session/close", map[string]string{
-		"id": id.Hex(),
+		"session_id": sessionId.Hex(),
+		"machine_id": machineId,
 	})
 }
 
@@ -169,7 +170,7 @@ func (s *WebAPISuite) TestCloseSession(c *C) {
 	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
 	c.Assert(err, IsNil)
 	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
-	cr, err := s.closeSession(id)
+	cr, err := s.closeSession(id, "00:26:cc:18:be:14")
 	c.Assert(err, IsNil)
 	c.Check(cr.StatusCode, Equals, http.StatusOK)
 	c.Check(cr.Body, Equals, nr.Body)
@@ -180,7 +181,7 @@ func (s *WebAPISuite) TestCloseSession(c *C) {
 }
 
 func (s *WebAPISuite) TestCloseSessionInexistent(c *C) {
-	r, err := s.closeSession(bson.NewObjectId())
+	r, err := s.closeSession(bson.NewObjectId(), "00:26:cc:18:be:14")
 	c.Assert(err, IsNil)
 	c.Check(r.StatusCode, Equals, http.StatusBadRequest)
 }
@@ -189,7 +190,7 @@ func (s *WebAPISuite) TestCloseSessionAlreadyClosed(c *C) {
 	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
 	c.Assert(err, IsNil)
 	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
-	cr, err := s.closeSession(id)
+	cr, err := s.closeSession(id, "00:26:cc:18:be:14")
 	c.Assert(err, IsNil)
 	c.Check(cr.StatusCode, Equals, http.StatusOK)
 	session := &Session{}
@@ -197,7 +198,7 @@ func (s *WebAPISuite) TestCloseSessionAlreadyClosed(c *C) {
 	c.Assert(err, IsNil)
 	closedAtBefore := session.ClosedAt
 	// Close the same session again
-	cr, err = s.closeSession(id)
+	cr, err = s.closeSession(id, "00:26:cc:18:be:14")
 	c.Assert(err, IsNil)
 	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
 	// Check session.ClosedAt value
@@ -205,6 +206,15 @@ func (s *WebAPISuite) TestCloseSessionAlreadyClosed(c *C) {
 	c.Assert(err, IsNil)
 	closedAtAfter := session.ClosedAt
 	c.Check(closedAtAfter, Equals, closedAtBefore)
+}
+
+func (s *WebAPISuite) TestCannotCloseSomebodyElsesSession(c *C) {
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	c.Assert(err, IsNil)
+	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
+	cr, err := s.closeSession(id, "ANOTHER_MACHINE_ID")
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
 }
 
 func (s *WebAPISuite) TestAppendErrorMessage(c *C) {

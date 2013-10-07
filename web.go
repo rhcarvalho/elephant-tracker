@@ -9,9 +9,11 @@ API v1 documentation
 Registers a new XMPPVOX session. All params must be non-empty.
 Returns the ID of the session.
 
-  POST /session.close (id)
+  POST /session/close (session_id, machine_id)
 
 Closes an existing XMPPVOX session.
+The machine_id is required as a minimal security feature
+to prevent an attacker from closing arbitrary sessions.
 Returns the ID of the session.
 
   POST /error (id, error)
@@ -91,14 +93,14 @@ func InsertSession(s *Session) error {
 	return coll.Insert(s)
 }
 
-func CloseSession(id bson.ObjectId) (info *mgo.ChangeInfo, err error) {
+func CloseSession(sessionId bson.ObjectId, machineId string) (info *mgo.ChangeInfo, err error) {
 	coll := db.C("sessions")
 	session := &Session{}
 	updateClosedTime := mgo.Change{
 		Update:    bson.M{"$set": bson.M{"closed_at": bson.Now()}},
 		ReturnNew: true,
 	}
-	return coll.Find(bson.M{"_id": id, "closed_at": time.Time{}}).
+	return coll.Find(bson.M{"_id": sessionId, "machine_id": machineId, "closed_at": time.Time{}}).
 		Apply(updateClosedTime, &session)
 }
 
@@ -144,24 +146,27 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 
 // CloseSessionHandler ...
 func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
-	idHex := r.PostFormValue("id")
-	if idHex == "" {
-		http.Error(w, "Retry with POST parameters: id", http.StatusBadRequest)
+	sessionIdHex := r.PostFormValue("session_id")
+	machineId := r.PostFormValue("machine_id")
+	if sessionIdHex == "" || machineId == "" {
+		http.Error(w, "Retry with POST parameters: session_id, machine_id", http.StatusBadRequest)
 		return
 	}
-	if !bson.IsObjectIdHex(idHex) {
-		http.Error(w, fmt.Sprintf("Invalid session id %s", idHex), http.StatusBadRequest)
+	if !bson.IsObjectIdHex(sessionIdHex) {
+		http.Error(w, fmt.Sprintf("Invalid session id %s", sessionIdHex), http.StatusBadRequest)
 		return
 	}
-	id := bson.ObjectIdHex(idHex)
-	_, err := CloseSession(id)
+	sessionId := bson.ObjectIdHex(sessionIdHex)
+	_, err := CloseSession(sessionId, machineId)
 	switch err {
 	case nil:
-		fmt.Fprintln(w, idHex)
+		fmt.Fprintln(w, sessionIdHex)
 	case mgo.ErrNotFound:
-		http.Error(w, fmt.Sprintf("Session %s does not exist or is already closed", idHex), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Session %s does not exist or is already closed", sessionIdHex),
+			http.StatusBadRequest)
 	default:
-		http.Error(w, fmt.Sprintf("Failed to close session %s", idHex), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to close session %s", sessionIdHex),
+			http.StatusInternalServerError)
 		log.Println(err)
 		// Try to reestablish a connection if MongoDB was unreachable.
 		go db.Session.Refresh()
