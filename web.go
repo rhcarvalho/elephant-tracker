@@ -16,11 +16,6 @@ The machine_id is required as a minimal security feature
 to prevent an attacker from closing arbitrary sessions.
 Returns the ID of the session.
 
-  POST /error (id, error)
-
-Attaches an error log message to an existing session.
-Returns the ID of the session.
-
   GET /update/last ()
 
 Returns the number of the lastest release of XMPPVOX.
@@ -55,7 +50,6 @@ type Session struct {
 	MachineId      string        `bson:"machine_id"`
 	XMPPVOXVersion string        `bson:"xmppvox_ver"`
 	Request        *HttpRequest  `bson:"req"`
-	Errors         []string      `bson:"errors,omitempty"`
 }
 
 // HttpRequest is a subset of http.Request.
@@ -102,17 +96,6 @@ func CloseSession(sessionId bson.ObjectId, machineId string) (info *mgo.ChangeIn
 	}
 	return coll.Find(bson.M{"_id": sessionId, "machine_id": machineId, "closed_at": time.Time{}}).
 		Apply(updateClosedTime, &session)
-}
-
-func AppendError(id bson.ObjectId, msg string) (info *mgo.ChangeInfo, err error) {
-	coll := db.C("sessions")
-	session := &Session{}
-	appendError := mgo.Change{
-		Update:    bson.M{"$push": bson.M{"errors": msg}},
-		ReturnNew: true,
-	}
-	return coll.Find(bson.M{"_id": id, "closed_at": time.Time{}}).
-		Apply(appendError, &session)
 }
 
 // NewSessionHandler ...
@@ -173,33 +156,6 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ErrorHandler ...
-func ErrorHandler(w http.ResponseWriter, r *http.Request) {
-	idHex := r.PostFormValue("id")
-	msg := r.PostFormValue("error")
-	if idHex == "" || msg == "" {
-		http.Error(w, "Retry with POST parameters: id, error", http.StatusBadRequest)
-		return
-	}
-	if !bson.IsObjectIdHex(idHex) {
-		http.Error(w, fmt.Sprintf("Invalid session id %s", idHex), http.StatusBadRequest)
-		return
-	}
-	id := bson.ObjectIdHex(idHex)
-	_, err := AppendError(id, msg)
-	switch err {
-	case nil:
-		fmt.Fprintln(w, idHex)
-	case mgo.ErrNotFound:
-		http.Error(w, fmt.Sprintf("Session %s does not exist or is already closed", idHex), http.StatusBadRequest)
-	default:
-		http.Error(w, "Failed to append error", http.StatusInternalServerError)
-		log.Println(err)
-		// Try to reestablish a connection if MongoDB was unreachable.
-		go db.Session.Refresh()
-	}
-}
-
 // LastUpdateHandler ...
 func LastUpdateHandler(w http.ResponseWriter, r *http.Request) {
 
@@ -219,7 +175,6 @@ func APIHandler() http.Handler {
 	r := mux.NewRouter().PathPrefix("/1").Subrouter()
 	r.HandleFunc("/session/new", NewSessionHandler).Methods("POST")
 	r.HandleFunc("/session/close", CloseSessionHandler).Methods("POST")
-	r.HandleFunc("/error", ErrorHandler).Methods("POST")
 	r.HandleFunc("/update/last", LastUpdateHandler).Methods("GET")
 	r.HandleFunc("/update/download", DownloadUpdateHandler).Methods("GET")
 	return r
