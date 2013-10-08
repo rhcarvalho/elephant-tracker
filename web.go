@@ -16,14 +16,6 @@ The machine_id is required as a minimal security feature
 to prevent an attacker from closing arbitrary sessions.
 Returns the ID of the session.
 
-  GET /update/last ()
-
-Returns the number of the lastest release of XMPPVOX.
-
-  GET /update/download ()
-
-Returns the lastest release of XMPPVOX (binary).
-
 Note: All responses have one of 200, 400 or 500 status code.
 
 */
@@ -156,16 +148,6 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// LastUpdateHandler ...
-func LastUpdateHandler(w http.ResponseWriter, r *http.Request) {
-
-}
-
-// DownloadUpdateHandler ...
-func DownloadUpdateHandler(w http.ResponseWriter, r *http.Request) {
-
-}
-
 var configPath = flag.String("config", "config.json", "path to a configuration file in JSON format")
 var db *mgo.Database
 
@@ -175,8 +157,6 @@ func APIHandler() http.Handler {
 	r := mux.NewRouter().PathPrefix("/1").Subrouter()
 	r.HandleFunc("/session/new", NewSessionHandler).Methods("POST")
 	r.HandleFunc("/session/close", CloseSessionHandler).Methods("POST")
-	r.HandleFunc("/update/last", LastUpdateHandler).Methods("GET")
-	r.HandleFunc("/update/download", DownloadUpdateHandler).Methods("GET")
 	return r
 }
 
