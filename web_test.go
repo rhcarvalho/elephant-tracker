@@ -159,6 +159,23 @@ func (s *WebAPISuite) TestNewSessionMissingFields(c *C) {
 	c.Check(countAfter, Equals, countBefore)
 }
 
+func (s *WebAPISuite) TestNewSessionExtraFields(c *C) {
+	const (
+		jid               = "testuser@server.org"
+		machineId         = "00:26:cc:18:be:14"
+		xmppvoxVersion    = "1.0"
+		extraInvalidField = "this is invalid"
+	)
+	r, err := s.apiPostCall("/1/session/new", map[string]string{
+		"jid":                 jid,
+		"machine_id":          machineId,
+		"xmppvox_version":     xmppvoxVersion,
+		"extra_invalid_field": extraInvalidField,
+	})
+	c.Assert(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusBadRequest)
+}
+
 func (s *WebAPISuite) TestCloseSession(c *C) {
 	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
 	c.Assert(err, IsNil)
@@ -171,6 +188,19 @@ func (s *WebAPISuite) TestCloseSession(c *C) {
 	err = db.C("sessions").FindId(id).One(session)
 	c.Assert(err, IsNil)
 	c.Check(session.ClosedAt.IsZero(), Equals, false)
+}
+
+func (s *WebAPISuite) TestCloseSessionExtraFields(c *C) {
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	c.Assert(err, IsNil)
+	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
+	cr, err := s.apiPostCall("/1/session/close", map[string]string{
+		"session_id":          id.Hex(),
+		"machine_id":          "00:26:cc:18:be:14",
+		"extra_invalid_field": "this is invalid",
+	})
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
 }
 
 func (s *WebAPISuite) TestCloseSessionInexistent(c *C) {

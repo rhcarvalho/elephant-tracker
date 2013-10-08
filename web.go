@@ -103,7 +103,7 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 	jid := r.PostFormValue("jid")
 	machineId := r.PostFormValue("machine_id")
 	xmppvoxVersion := r.PostFormValue("xmppvox_version")
-	if jid == "" || machineId == "" || xmppvoxVersion == "" {
+	if len(r.PostForm) != 3 || jid == "" || machineId == "" || xmppvoxVersion == "" {
 		http.Error(w, "Retry with POST parameters: jid, machine_id, xmppvox_version", http.StatusBadRequest)
 		return
 	}
@@ -131,7 +131,7 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 	sessionIdHex := r.PostFormValue("session_id")
 	machineId := r.PostFormValue("machine_id")
-	if sessionIdHex == "" || machineId == "" {
+	if len(r.PostForm) != 2 || sessionIdHex == "" || machineId == "" {
 		http.Error(w, "Retry with POST parameters: session_id, machine_id", http.StatusBadRequest)
 		return
 	}
