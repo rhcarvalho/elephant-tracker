@@ -7,7 +7,8 @@ API v1 documentation
   POST /session/new (jid, machine_id, xmppvox_version)
 
 Registers a new XMPPVOX session. All params must be non-empty.
-Returns the ID of the session.
+Returns the ID of the session in the first line of the response
+and might return a message in the next lines.
 
   POST /session/close (session_id, machine_id)
 
@@ -99,6 +100,13 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Retry with POST parameters: jid, machine_id, xmppvox_version", http.StatusBadRequest)
 		return
 	}
+	// A new session might be forbidden under certain conditions,
+	// such as xmppvoxVersion, machineId or jid.
+	// The client will stop executing and display a message to the user.
+	//if ... {
+	//	http.Error(w, "DENY SESSION WITH A MESSAGE", http.StatusForbidden)
+	//	return
+	//}
 	s := NewSession(jid, machineId, xmppvoxVersion, &HttpRequest{
 		Method:     r.Method,
 		URL:        r.URL,
@@ -111,6 +119,12 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 	switch err {
 	case nil:
 		fmt.Fprintln(w, s.Id.Hex())
+		// Together with a sessionId, the response body might include a message.
+		// The client will display the message to the user right after acquiring
+		// the sessionId.
+		//if ... {
+		//	fmt.Fprintln(w, "APPEND A MESSAGE TO XMPPVOX")
+		//}
 	default:
 		http.Error(w, "Failed to create a new session", http.StatusInternalServerError)
 		log.Println(err)
