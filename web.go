@@ -17,6 +17,11 @@ The machine_id is required as a minimal security feature
 to prevent an attacker from closing arbitrary sessions.
 Returns the ID of the session.
 
+  POST /session/ping (session_id, machine_id)
+
+Pings an existing open XMPPVOX session.
+Returns the ID of the session.
+
 Note: All responses have one of 200, 400 or 500 status code.
 
 */
@@ -39,6 +44,7 @@ type Session struct {
 	Id             bson.ObjectId `bson:"_id"`
 	CreatedAt      time.Time     `bson:"created_at"`
 	ClosedAt       time.Time     `bson:"closed_at"`
+	LastPing       time.Time     `bson:"last_ping"`
 	JID            string        `bson:"jid"`
 	MachineId      string        `bson:"machine_id"`
 	XMPPVOXVersion string        `bson:"xmppvox_ver"`
@@ -89,6 +95,17 @@ func CloseSession(sessionId bson.ObjectId, machineId string) (info *mgo.ChangeIn
 	}
 	return coll.Find(bson.M{"_id": sessionId, "machine_id": machineId, "closed_at": time.Time{}}).
 		Apply(updateClosedTime, &session)
+}
+
+func PingSession(sessionId bson.ObjectId, machineId string) (info *mgo.ChangeInfo, err error) {
+	coll := db.C("sessions")
+	session := &Session{}
+	updateLastPing := mgo.Change{
+		Update:    bson.M{"$set": bson.M{"last_ping": bson.Now()}},
+		ReturnNew: true,
+	}
+	return coll.Find(bson.M{"_id": sessionId, "machine_id": machineId, "closed_at": time.Time{}}).
+		Apply(updateLastPing, &session)
 }
 
 // NewSessionHandler ...
@@ -162,6 +179,35 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// PingSessionHandler ...
+func PingSessionHandler(w http.ResponseWriter, r *http.Request) {
+	sessionIdHex := r.PostFormValue("session_id")
+	machineId := r.PostFormValue("machine_id")
+	if len(r.PostForm) != 2 || sessionIdHex == "" || machineId == "" {
+		http.Error(w, "Retry with POST parameters: session_id, machine_id", http.StatusBadRequest)
+		return
+	}
+	if !bson.IsObjectIdHex(sessionIdHex) {
+		http.Error(w, fmt.Sprintf("Invalid session id %s", sessionIdHex), http.StatusBadRequest)
+		return
+	}
+	sessionId := bson.ObjectIdHex(sessionIdHex)
+	_, err := PingSession(sessionId, machineId)
+	switch err {
+	case nil:
+		fmt.Fprintln(w, sessionIdHex)
+	case mgo.ErrNotFound:
+		http.Error(w, fmt.Sprintf("Session %s does not exist or is already closed", sessionIdHex),
+			http.StatusBadRequest)
+	default:
+		http.Error(w, fmt.Sprintf("Failed to ping session %s", sessionIdHex),
+			http.StatusInternalServerError)
+		log.Println(err)
+		// Try to reestablish a connection if MongoDB was unreachable.
+		go db.Session.Refresh()
+	}
+}
+
 var configPath = flag.String("config", "config.json", "path to a configuration file in JSON format")
 var db *mgo.Database
 
@@ -171,6 +217,7 @@ func APIHandler() http.Handler {
 	r := mux.NewRouter().PathPrefix("/1").Subrouter()
 	r.HandleFunc("/session/new", NewSessionHandler).Methods("POST")
 	r.HandleFunc("/session/close", CloseSessionHandler).Methods("POST")
+	r.HandleFunc("/session/ping", PingSessionHandler).Methods("POST")
 	return r
 }
 

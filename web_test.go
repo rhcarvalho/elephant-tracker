@@ -112,7 +112,16 @@ func (s *WebAPISuite) closeSession(sessionId bson.ObjectId, machineId string) (r
 	})
 }
 
+func (s *WebAPISuite) pingSession(sessionId bson.ObjectId, machineId string) (r *Response, err error) {
+	return s.apiPostCall("/1/session/ping", map[string]string{
+		"session_id": sessionId.Hex(),
+		"machine_id": machineId,
+	})
+}
+
 // ************************ Tests ************************
+
+// New Session tests
 
 func (s *WebAPISuite) TestNewSession(c *C) {
 	const (
@@ -131,6 +140,7 @@ func (s *WebAPISuite) TestNewSession(c *C) {
 	c.Assert(err, IsNil)
 	c.Check(session.CreatedAt.IsZero(), Equals, false)
 	c.Check(session.ClosedAt.IsZero(), Equals, true)
+	c.Check(session.LastPing.IsZero(), Equals, true)
 	c.Check(session.JID, Equals, jid)
 	c.Check(session.MachineId, Equals, machineId)
 	c.Check(session.XMPPVOXVersion, Equals, xmppvoxVersion)
@@ -175,6 +185,8 @@ func (s *WebAPISuite) TestNewSessionExtraFields(c *C) {
 	c.Assert(err, IsNil)
 	c.Check(r.StatusCode, Equals, http.StatusBadRequest)
 }
+
+// Close Session tests
 
 func (s *WebAPISuite) TestCloseSession(c *C) {
 	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
@@ -236,6 +248,95 @@ func (s *WebAPISuite) TestCannotCloseSomebodyElsesSession(c *C) {
 	c.Assert(err, IsNil)
 	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
 	cr, err := s.closeSession(id, "ANOTHER_MACHINE_ID")
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
+}
+
+// Ping Session tests
+
+func (s *WebAPISuite) TestPingSession(c *C) {
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	c.Assert(err, IsNil)
+	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
+	cr, err := s.pingSession(id, "00:26:cc:18:be:14")
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusOK)
+	c.Check(cr.Body, Equals, nr.Body)
+	session := &Session{}
+	err = db.C("sessions").FindId(id).One(session)
+	c.Assert(err, IsNil)
+	c.Check(session.LastPing.IsZero(), Equals, false)
+}
+
+func (s *WebAPISuite) TestPingSessionExtraFields(c *C) {
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	c.Assert(err, IsNil)
+	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
+	cr, err := s.apiPostCall("/1/session/ping", map[string]string{
+		"session_id":          id.Hex(),
+		"machine_id":          "00:26:cc:18:be:14",
+		"extra_invalid_field": "this is invalid",
+	})
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
+}
+
+func (s *WebAPISuite) TestPingSessionInexistent(c *C) {
+	r, err := s.pingSession(bson.NewObjectId(), "00:26:cc:18:be:14")
+	c.Assert(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusBadRequest)
+}
+
+func (s *WebAPISuite) TestPingSessionAlreadyClosed(c *C) {
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	c.Assert(err, IsNil)
+	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
+	cr, err := s.closeSession(id, "00:26:cc:18:be:14")
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusOK)
+	session := &Session{}
+	err = db.C("sessions").FindId(id).One(session)
+	c.Assert(err, IsNil)
+	lastPingBefore := session.LastPing
+	// PING closed session
+	cr, err = s.pingSession(id, "00:26:cc:18:be:14")
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
+	// Check session.LastPing value
+	err = db.C("sessions").FindId(id).One(session)
+	c.Assert(err, IsNil)
+	lastPingAfter := session.LastPing
+	c.Check(lastPingAfter, Equals, lastPingBefore)
+}
+
+func (s *WebAPISuite) TestPingSessionTwice(c *C) {
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	c.Assert(err, IsNil)
+	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
+	// First PING
+	cr, err := s.pingSession(id, "00:26:cc:18:be:14")
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusOK)
+	session := &Session{}
+	err = db.C("sessions").FindId(id).One(session)
+	c.Assert(err, IsNil)
+	lastPingBefore := session.LastPing
+	// Second PING
+	cr, err = s.pingSession(id, "00:26:cc:18:be:14")
+	c.Assert(err, IsNil)
+	c.Check(cr.StatusCode, Equals, http.StatusOK)
+	// Check session.LastPing value
+	err = db.C("sessions").FindId(id).One(session)
+	c.Assert(err, IsNil)
+	lastPingAfter := session.LastPing
+	c.Check(lastPingAfter, Not(Equals), lastPingBefore)
+}
+
+func (s *WebAPISuite) TestCannotPingSomebodyElsesSession(c *C) {
+	nr, err := s.newSession("testuser@server.org", "00:26:cc:18:be:14", "1.0")
+	c.Assert(err, IsNil)
+	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
+	cr, err := s.pingSession(id, "ANOTHER_MACHINE_ID")
 	c.Assert(err, IsNil)
 	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
 }
