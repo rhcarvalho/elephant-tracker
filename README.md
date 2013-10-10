@@ -31,5 +31,5 @@ config.json:
     "url": "user:password@localhost:142857",
     "db": "xmppvox"
   }
-}```
-
+}
+```
