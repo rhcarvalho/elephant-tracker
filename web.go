@@ -286,9 +286,15 @@ var db *mgo.Database
 // APIHandler returns a http.Handler that matches URLs of the latest API.
 func APIHandler() http.Handler {
 	// API v1
+	t := time.Now()
 	r := mux.NewRouter()
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "API OK")
+	})
+	r.HandleFunc("/uptime", func(w http.ResponseWriter, r *http.Request) {
+		d := time.Since(t)
+		var h, m, s int = int(d.Hours()), int(d.Minutes()), int(d.Seconds())
+		fmt.Fprintf(w, "API uptime: %dd%02dh%02dm%02ds\n", h/24, h%24, m%60, s%60)
 	})
 	s := r.PathPrefix("/1").Subrouter()
 	s.HandleFunc("/installation/new", NewInstallationHandler).Methods("POST")
