@@ -87,10 +87,10 @@ func (s *WebAPISuite) apiPostCall(apiResource string, data map[string]string) (r
 		postData.Set(key, value)
 	}
 	resp, err := s.postForm(apiResource, postData)
-	r = &Response{StatusCode: resp.StatusCode}
 	if err != nil {
 		return
 	}
+	r = &Response{StatusCode: resp.StatusCode}
 	defer resp.Body.Close()
 	b, err := ioutil.ReadAll(resp.Body)
 	r.Body = string(b)
