@@ -286,11 +286,15 @@ var db *mgo.Database
 // APIHandler returns a http.Handler that matches URLs of the latest API.
 func APIHandler() http.Handler {
 	// API v1
-	r := mux.NewRouter().PathPrefix("/1").Subrouter()
-	r.HandleFunc("/installation/new", NewInstallationHandler).Methods("POST")
-	r.HandleFunc("/session/new", NewSessionHandler).Methods("POST")
-	r.HandleFunc("/session/close", CloseSessionHandler).Methods("POST")
-	r.HandleFunc("/session/ping", PingSessionHandler).Methods("POST")
+	r := mux.NewRouter()
+	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "API OK")
+	})
+	s := r.PathPrefix("/1").Subrouter()
+	s.HandleFunc("/installation/new", NewInstallationHandler).Methods("POST")
+	s.HandleFunc("/session/new", NewSessionHandler).Methods("POST")
+	s.HandleFunc("/session/close", CloseSessionHandler).Methods("POST")
+	s.HandleFunc("/session/ping", PingSessionHandler).Methods("POST")
 	return r
 }
 
