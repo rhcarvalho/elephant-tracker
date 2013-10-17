@@ -321,6 +321,7 @@ func (s *WebAPISuite) TestPingSessionTwice(c *C) {
 	err = db.C("sessions").FindId(id).One(session)
 	c.Assert(err, IsNil)
 	lastPingBefore := session.LastPing
+	middleTime := bson.Now()
 	// Second PING
 	cr, err = s.pingSession(id, "00:26:cc:18:be:14")
 	c.Assert(err, IsNil)
@@ -329,7 +330,8 @@ func (s *WebAPISuite) TestPingSessionTwice(c *C) {
 	err = db.C("sessions").FindId(id).One(session)
 	c.Assert(err, IsNil)
 	lastPingAfter := session.LastPing
-	c.Check(lastPingAfter, Not(Equals), lastPingBefore)
+	// Check that lastPingBefore <= middleTime <= lastPingAfter
+	c.Check(lastPingBefore.After(middleTime) || middleTime.After(lastPingAfter), Equals, false)
 }
 
 func (s *WebAPISuite) TestCannotPingSomebodyElsesSession(c *C) {
