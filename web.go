@@ -4,6 +4,13 @@ API v1 documentation
 
   HTTP_METHOD URL (params, ...)
 
+  POST /installation/new (machine_id, xmppvox_version, dosvox_info, machine_info)
+
+Registers a new XMPPVOX installation. All params must be non-empty strings.
+dosvox_info and machine_info can either be null or contain a JSON-encoded mapping
+of strings to strings.
+Returns the machine_id.
+
   POST /session/new (jid, machine_id, xmppvox_version)
 
 Registers a new XMPPVOX session. All params must be non-empty.
@@ -28,6 +35,7 @@ Note: All responses have one of 200, 400 or 500 status code.
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -38,6 +46,15 @@ import (
 	"net/url"
 	"time"
 )
+
+// Installation stores information about a XMPPVOX installation.
+type Installation struct {
+	MachineId      string            `bson:"_id"`
+	XMPPVOXVersion string            `bson:"xmppvox_ver"`
+	DosvoxInfo     map[string]string `bson:"dosvox_info"`
+	MachineInfo    map[string]string `bson:"machine_info"`
+	CreatedAt      time.Time         `bson:"created_at"`
+}
 
 // Session stores information about a XMPPVOX session.
 type Session struct {
@@ -68,6 +85,21 @@ type HttpRequest struct {
 	RemoteAddr string
 	//RequestURI string
 	//TLS *tls.ConnectionState
+}
+
+func NewInstallation(machineId, xmppvoxVersion string, dosvoxInfo, machineInfo map[string]string) *Installation {
+	return &Installation{
+		MachineId:      machineId,
+		XMPPVOXVersion: xmppvoxVersion,
+		DosvoxInfo:     dosvoxInfo,
+		MachineInfo:    machineInfo,
+		CreatedAt:      bson.Now(),
+	}
+}
+
+func InsertInstallation(i *Installation) error {
+	coll := db.C("installations")
+	return coll.Insert(i)
 }
 
 func NewSession(jid, machineId, xmppvoxVersion string, r *HttpRequest) *Session {
@@ -106,6 +138,46 @@ func PingSession(sessionId bson.ObjectId, machineId string) (info *mgo.ChangeInf
 	}
 	return coll.Find(bson.M{"_id": sessionId, "machine_id": machineId, "closed_at": time.Time{}}).
 		Apply(updateLastPing, &session)
+}
+
+// NewInstallationHandler ...
+func NewInstallationHandler(w http.ResponseWriter, r *http.Request) {
+	machineId := r.PostFormValue("machine_id")
+	xmppvoxVersion := r.PostFormValue("xmppvox_version")
+	dosvoxInfoStr := r.PostFormValue("dosvox_info")
+	machineInfoStr := r.PostFormValue("machine_info")
+	if len(r.PostForm) != 4 || machineId == "" || xmppvoxVersion == "" || dosvoxInfoStr == "" || machineInfoStr == "" {
+		http.Error(w, "Retry with POST parameters: machine_id, xmppvox_version, dosvox_info, machine_info",
+			http.StatusBadRequest)
+		return
+	}
+	var dosvoxInfo, machineInfo map[string]string
+	err := json.Unmarshal([]byte(dosvoxInfoStr), &dosvoxInfo)
+	if err != nil {
+		http.Error(w, "Invalid JSON for dosvox_info", http.StatusBadRequest)
+		return
+	}
+	err = json.Unmarshal([]byte(machineInfoStr), &machineInfo)
+	if err != nil {
+		http.Error(w, "Invalid JSON for machine_info", http.StatusBadRequest)
+		return
+	}
+	i := NewInstallation(machineId, xmppvoxVersion, dosvoxInfo, machineInfo)
+	err = InsertInstallation(i)
+	if mgo.IsDup(err) {
+		http.Error(w, "Installation already registered", http.StatusBadRequest)
+		return
+	}
+	switch err {
+	case nil:
+		fmt.Fprintln(w, machineId)
+	default:
+		http.Error(w, fmt.Sprintf("Failed to track install %s", machineId),
+			http.StatusInternalServerError)
+		log.Println(err)
+		// Try to reestablish a connection if MongoDB was unreachable.
+		go db.Session.Refresh()
+	}
 }
 
 // NewSessionHandler ...
@@ -215,6 +287,7 @@ var db *mgo.Database
 func APIHandler() http.Handler {
 	// API v1
 	r := mux.NewRouter().PathPrefix("/1").Subrouter()
+	r.HandleFunc("/installation/new", NewInstallationHandler).Methods("POST")
 	r.HandleFunc("/session/new", NewSessionHandler).Methods("POST")
 	r.HandleFunc("/session/close", CloseSessionHandler).Methods("POST")
 	r.HandleFunc("/session/ping", PingSessionHandler).Methods("POST")

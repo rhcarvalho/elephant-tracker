@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"labix.org/v2/mgo"
@@ -97,6 +98,19 @@ func (s *WebAPISuite) apiPostCall(apiResource string, data map[string]string) (r
 	return
 }
 
+func (s *WebAPISuite) newInstallation(machineId, xmppvoxVersion string, dosvoxInfo, machineInfo map[string]string) (r *Response, err error) {
+	m := func(v interface{}) string {
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+	return s.apiPostCall("/1/installation/new", map[string]string{
+		"machine_id":      machineId,
+		"xmppvox_version": xmppvoxVersion,
+		"dosvox_info":     m(dosvoxInfo),
+		"machine_info":    m(machineInfo),
+	})
+}
+
 func (s *WebAPISuite) newSession(jid, machineId, xmppvoxVersion string) (r *Response, err error) {
 	return s.apiPostCall("/1/session/new", map[string]string{
 		"jid":             jid,
@@ -120,6 +134,115 @@ func (s *WebAPISuite) pingSession(sessionId bson.ObjectId, machineId string) (r 
 }
 
 // ************************ Tests ************************
+
+// Install tests
+
+func (s *WebAPISuite) TestNewInstallation(c *C) {
+	const (
+		machineId      = "0e5ab64c-1b24-4917-bb9e-new-installation"
+		xmppvoxVersion = "1.1"
+	)
+	var (
+		dosvoxInfo = map[string]string{
+			"root":    "C:\\winvox",
+			"version": "4.0 BETA",
+			"email":   "fulano@servidor.com.br",
+		}
+		machineInfo = map[string]string{
+			"system":    "Windows",
+			"node":      "network-name",
+			"release":   "XP",
+			"version":   "5.1.2600",
+			"csd":       "SP2",
+			"ptype":     "Multiprocessor Free",
+			"machine":   "x86",
+			"processor": "x86 Family 6 Model 23 Stepping 10, GenuineIntel",
+		}
+	)
+	r, err := s.newInstallation(machineId, xmppvoxVersion, dosvoxInfo, machineInfo)
+	c.Assert(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusOK)
+	installation := &Installation{}
+	err = db.C("installations").FindId(machineId).One(installation)
+	c.Assert(err, IsNil)
+	c.Check(installation.CreatedAt.IsZero(), Equals, false)
+	c.Check(installation.XMPPVOXVersion, Equals, xmppvoxVersion)
+	c.Check(installation.DosvoxInfo, DeepEquals, dosvoxInfo)
+	c.Check(installation.MachineInfo, DeepEquals, machineInfo)
+}
+
+func (s *WebAPISuite) TestNewInstallationDuplicateMachineId(c *C) {
+	const (
+		machineId      = "0e5ab64c-1b24-4917-new-installation-dup"
+		xmppvoxVersion = "1.1"
+	)
+	var (
+		dosvoxInfo = map[string]string{
+			"root":    "C:\\winvox",
+			"version": "4.0 BETA",
+			"email":   "fulano@servidor.com.br",
+		}
+		machineInfo = map[string]string{
+			"system":    "Windows",
+			"node":      "network-name",
+			"release":   "XP",
+			"version":   "5.1.2600",
+			"csd":       "SP2",
+			"ptype":     "Multiprocessor Free",
+			"machine":   "x86",
+			"processor": "x86 Family 6 Model 23 Stepping 10, GenuineIntel",
+		}
+	)
+	r, err := s.newInstallation(machineId, xmppvoxVersion, dosvoxInfo, machineInfo)
+	c.Assert(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusOK)
+	// try to install again with the same info
+	r, err = s.newInstallation(machineId, xmppvoxVersion, dosvoxInfo, machineInfo)
+	c.Assert(err, IsNil)
+	c.Check(r.StatusCode, Equals, http.StatusBadRequest)
+}
+
+func (s *WebAPISuite) TestNewInstallationMissingFields(c *C) {
+	const (
+		machineId      = "0e5ab64c-1b24-4917-new-installation-missing"
+		xmppvoxVersion = "1.1"
+	)
+	var (
+		dosvoxInfo = map[string]string{
+			"root":    "C:\\winvox",
+			"version": "4.0 BETA",
+			"email":   "fulano@servidor.com.br",
+		}
+		machineInfo = map[string]string{
+			"system":    "Windows",
+			"node":      "network-name",
+			"release":   "XP",
+			"version":   "5.1.2600",
+			"csd":       "SP2",
+			"ptype":     "Multiprocessor Free",
+			"machine":   "x86",
+			"processor": "x86 Family 6 Model 23 Stepping 10, GenuineIntel",
+		}
+	)
+	countBefore, err := db.C("installations").Find(nil).Count()
+	c.Assert(err, IsNil)
+	type TestCase struct {
+		MachineId, XMPPVOXVersion string
+		DosvoxInfo, MachineInfo   map[string]string
+	}
+	for _, tc := range []TestCase{
+		TestCase{"", xmppvoxVersion, dosvoxInfo, machineInfo},
+		TestCase{machineId, "", dosvoxInfo, machineInfo},
+		TestCase{"", "", nil, nil},
+	} {
+		r, err := s.newInstallation(tc.MachineId, tc.XMPPVOXVersion, tc.DosvoxInfo, tc.MachineInfo)
+		c.Assert(err, IsNil)
+		c.Check(r.StatusCode, Equals, http.StatusBadRequest)
+	}
+	countAfter, err := db.C("installations").Find(nil).Count()
+	c.Assert(err, IsNil)
+	c.Check(countAfter, Equals, countBefore)
+}
 
 // New Session tests
 
