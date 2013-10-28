@@ -55,7 +55,8 @@ func NewInstallationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	i := NewInstallation(machineId, xmppvoxVersion, dosvoxInfo, machineInfo)
-	err = InsertInstallation(i)
+	ms := MongoStore{db}
+	err = ms.InsertInstallation(i)
 	if mgo.IsDup(err) {
 		http.Error(w, "Installation already registered", http.StatusBadRequest)
 		return
@@ -96,7 +97,8 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 		Form:       r.Form,
 		RemoteAddr: r.RemoteAddr,
 	})
-	err := InsertSession(s)
+	ms := MongoStore{db}
+	err := ms.InsertSession(s)
 	switch err {
 	case nil:
 		fmt.Fprintln(w, s.Id.Hex())
@@ -127,7 +129,8 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionId := bson.ObjectIdHex(sessionIdHex)
-	_, err := CloseSession(sessionId, machineId)
+	ms := MongoStore{db}
+	err := ms.CloseSession(&Session{Id: sessionId, MachineId: machineId})
 	switch err {
 	case nil:
 		fmt.Fprintln(w, sessionIdHex)
@@ -156,7 +159,8 @@ func PingSessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionId := bson.ObjectIdHex(sessionIdHex)
-	_, err := PingSession(sessionId, machineId)
+	ms := MongoStore{db}
+	err := ms.PingSession(&Session{Id: sessionId, MachineId: machineId})
 	switch err {
 	case nil:
 		fmt.Fprintln(w, sessionIdHex)

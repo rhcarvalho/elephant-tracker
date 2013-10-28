@@ -58,11 +58,6 @@ func NewInstallation(machineId, xmppvoxVersion string, dosvoxInfo, machineInfo m
 	}
 }
 
-func InsertInstallation(i *Installation) error {
-	coll := db.C("installations")
-	return coll.Insert(i)
-}
-
 func NewSession(jid, machineId, xmppvoxVersion string, r *HttpRequest) *Session {
 	return &Session{
 		Id:             bson.NewObjectId(),
@@ -74,29 +69,40 @@ func NewSession(jid, machineId, xmppvoxVersion string, r *HttpRequest) *Session 
 	}
 }
 
-func InsertSession(s *Session) error {
-	coll := db.C("sessions")
-	return coll.Insert(s)
+type MongoStore struct {
+	*mgo.Database
 }
 
-func CloseSession(sessionId bson.ObjectId, machineId string) (info *mgo.ChangeInfo, err error) {
-	coll := db.C("sessions")
-	session := &Session{}
+func (m *MongoStore) InsertInstallation(i *Installation) error {
+	return m.C("installations").Insert(i)
+}
+
+func (m *MongoStore) InsertSession(s *Session) error {
+	return m.C("sessions").Insert(s)
+}
+
+func (m *MongoStore) CloseSession(s *Session) error {
 	updateClosedTime := mgo.Change{
 		Update:    bson.M{"$set": bson.M{"closed_at": bson.Now()}},
 		ReturnNew: true,
 	}
-	return coll.Find(bson.M{"_id": sessionId, "machine_id": machineId, "closed_at": time.Time{}}).
-		Apply(updateClosedTime, &session)
+	_, err := m.C("sessions").Find(bson.M{
+		"_id":        s.Id,
+		"machine_id": s.MachineId,
+		"closed_at":  time.Time{},
+	}).Apply(updateClosedTime, &s)
+	return err
 }
 
-func PingSession(sessionId bson.ObjectId, machineId string) (info *mgo.ChangeInfo, err error) {
-	coll := db.C("sessions")
-	session := &Session{}
+func (m *MongoStore) PingSession(s *Session) error {
 	updateLastPing := mgo.Change{
 		Update:    bson.M{"$set": bson.M{"last_ping": bson.Now()}},
 		ReturnNew: true,
 	}
-	return coll.Find(bson.M{"_id": sessionId, "machine_id": machineId, "closed_at": time.Time{}}).
-		Apply(updateLastPing, &session)
+	_, err := m.C("sessions").Find(bson.M{
+		"_id":        s.Id,
+		"machine_id": s.MachineId,
+		"closed_at":  time.Time{},
+	}).Apply(updateLastPing, &s)
+	return err
 }
