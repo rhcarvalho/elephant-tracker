@@ -71,8 +71,6 @@ func NewInstallationHandler(w http.ResponseWriter, r *http.Request, c *Context) 
 		http.Error(w, fmt.Sprintf("Failed to track install %s", machineId),
 			http.StatusInternalServerError)
 		log.Println(err)
-		// Try to reestablish a connection if MongoDB was unreachable.
-		go db.Session.Refresh()
 	}
 }
 
@@ -113,8 +111,6 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request, c *Context) {
 	default:
 		http.Error(w, "Failed to create a new session", http.StatusInternalServerError)
 		log.Println(err)
-		// Try to reestablish a connection if MongoDB was unreachable.
-		go db.Session.Refresh()
 	}
 }
 
@@ -142,8 +138,6 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request, c *Context) {
 		http.Error(w, fmt.Sprintf("Failed to close session %s", sessionIdHex),
 			http.StatusInternalServerError)
 		log.Println(err)
-		// Try to reestablish a connection if MongoDB was unreachable.
-		go db.Session.Refresh()
 	}
 }
 
@@ -171,7 +165,5 @@ func PingSessionHandler(w http.ResponseWriter, r *http.Request, c *Context) {
 		http.Error(w, fmt.Sprintf("Failed to ping session %s", sessionIdHex),
 			http.StatusInternalServerError)
 		log.Println(err)
-		// Try to reestablish a connection if MongoDB was unreachable.
-		go db.Session.Refresh()
 	}
 }

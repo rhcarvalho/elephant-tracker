@@ -10,7 +10,10 @@ import (
 )
 
 var configPath = flag.String("config", "config.json", "path to a configuration file in JSON format")
-var db *mgo.Database
+var (
+	mgoSession  *mgo.Session
+	mgoDatabase string
+)
 
 func main() {
 	flag.Parse()
@@ -19,14 +22,14 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	mgoDatabase = config.Mongo.DB
+
 	// Set session timeout to fail early and avoid long response times.
-	session, err := mgo.DialWithTimeout(config.Mongo.URL, 5*time.Second)
+	mgoSession, err = mgo.DialWithTimeout(config.Mongo.URL, 5*time.Second)
 	if err != nil {
 		log.Fatalln("[MongoDB]", err)
 	}
-	defer session.Close()
-
-	db = session.DB(config.Mongo.DB)
+	defer mgoSession.Close()
 
 	addr := fmt.Sprintf("%s:%d", config.Http.Host, config.Http.Port)
 	log.Printf("serving at %s\n", addr)
