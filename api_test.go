@@ -2,8 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	. "launchpad.net/gocheck"
@@ -19,7 +17,6 @@ import (
 func Test(t *testing.T) { TestingT(t) }
 
 type WebAPISuite struct {
-	Server  *httptest.Server
 	Session *mgo.Session
 }
 
@@ -47,40 +44,15 @@ func (s *WebAPISuite) SetUpSuite(c *C) {
 	for _, name := range names {
 		db.C(name).DropCollection()
 	}
-
-	s.Server = httptest.NewServer(APIHandler())
 }
 
 func (s *WebAPISuite) TearDownSuite(c *C) {
-	s.Server.Close()
 	s.Session.Close()
-}
-
-// postForm is a helper to http.PostForm that prepends the address of the test server to form the URL.
-func (s *WebAPISuite) postForm(path string, data url.Values) (resp *http.Response, err error) {
-	url := fmt.Sprintf("%s%s", s.Server.URL, path)
-	return http.PostForm(url, data)
 }
 
 type Response struct {
 	Body       string
 	StatusCode int
-}
-
-func (s *WebAPISuite) apiPostCall(apiResource string, data map[string]string) (r *Response, err error) {
-	postData := url.Values{}
-	for key, value := range data {
-		postData.Set(key, value)
-	}
-	resp, err := s.postForm(apiResource, postData)
-	if err != nil {
-		return
-	}
-	r = &Response{StatusCode: resp.StatusCode}
-	defer resp.Body.Close()
-	b, err := ioutil.ReadAll(resp.Body)
-	r.Body = string(b)
-	return
 }
 
 func (s *WebAPISuite) handlePost(handler func(http.ResponseWriter, *http.Request), data map[string]string) *Response {
