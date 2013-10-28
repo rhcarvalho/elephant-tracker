@@ -55,7 +55,7 @@ type Response struct {
 	StatusCode int
 }
 
-func (s *WebAPISuite) handlePost(handler func(http.ResponseWriter, *http.Request), data map[string]string) *Response {
+func (s *WebAPISuite) handlePost(h contextualHandlerFunc, data map[string]string) *Response {
 	postData := url.Values{}
 	for key, value := range data {
 		postData.Set(key, value)
@@ -66,7 +66,7 @@ func (s *WebAPISuite) handlePost(handler func(http.ResponseWriter, *http.Request
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	handler(w, req)
+	h(w, req, &Context{&MongoStore{db}})
 	return &Response{
 		Body:       w.Body.String(),
 		StatusCode: w.Code,

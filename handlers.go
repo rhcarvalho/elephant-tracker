@@ -25,15 +25,19 @@ func APIHandler() http.Handler {
 		fmt.Fprintf(w, "API uptime: %dd%02dh%02dm%02ds\n", h/24, h%24, m%60, s%60)
 	})
 	s := r.PathPrefix("/1").Subrouter()
-	s.HandleFunc("/installation/new", NewInstallationHandler).Methods("POST")
-	s.HandleFunc("/session/new", NewSessionHandler).Methods("POST")
-	s.HandleFunc("/session/close", CloseSessionHandler).Methods("POST")
-	s.HandleFunc("/session/ping", PingSessionHandler).Methods("POST")
+	for pattern, handler := range map[string]contextualHandlerFunc{
+		"/installation/new": NewInstallationHandler,
+		"/session/new":      NewSessionHandler,
+		"/session/close":    CloseSessionHandler,
+		"/session/ping":     PingSessionHandler,
+	} {
+		s.Handle(pattern, handler).Methods("POST")
+	}
 	return r
 }
 
 // NewInstallationHandler ...
-func NewInstallationHandler(w http.ResponseWriter, r *http.Request) {
+func NewInstallationHandler(w http.ResponseWriter, r *http.Request, c *Context) {
 	machineId := r.PostFormValue("machine_id")
 	xmppvoxVersion := r.PostFormValue("xmppvox_version")
 	dosvoxInfoStr := r.PostFormValue("dosvox_info")
@@ -55,8 +59,7 @@ func NewInstallationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	i := NewInstallation(machineId, xmppvoxVersion, dosvoxInfo, machineInfo)
-	ms := MongoStore{db}
-	err = ms.InsertInstallation(i)
+	err = c.Store.InsertInstallation(i)
 	if mgo.IsDup(err) {
 		http.Error(w, "Installation already registered", http.StatusBadRequest)
 		return
@@ -74,7 +77,7 @@ func NewInstallationHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // NewSessionHandler ...
-func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
+func NewSessionHandler(w http.ResponseWriter, r *http.Request, c *Context) {
 	jid := r.PostFormValue("jid")
 	machineId := r.PostFormValue("machine_id")
 	xmppvoxVersion := r.PostFormValue("xmppvox_version")
@@ -97,8 +100,7 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 		Form:       r.Form,
 		RemoteAddr: r.RemoteAddr,
 	})
-	ms := MongoStore{db}
-	err := ms.InsertSession(s)
+	err := c.Store.InsertSession(s)
 	switch err {
 	case nil:
 		fmt.Fprintln(w, s.Id.Hex())
@@ -117,7 +119,7 @@ func NewSessionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // CloseSessionHandler ...
-func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
+func CloseSessionHandler(w http.ResponseWriter, r *http.Request, c *Context) {
 	sessionIdHex := r.PostFormValue("session_id")
 	machineId := r.PostFormValue("machine_id")
 	if len(r.PostForm) != 2 || sessionIdHex == "" || machineId == "" {
@@ -129,8 +131,7 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionId := bson.ObjectIdHex(sessionIdHex)
-	ms := MongoStore{db}
-	err := ms.CloseSession(&Session{Id: sessionId, MachineId: machineId})
+	err := c.Store.CloseSession(&Session{Id: sessionId, MachineId: machineId})
 	switch err {
 	case nil:
 		fmt.Fprintln(w, sessionIdHex)
@@ -147,7 +148,7 @@ func CloseSessionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // PingSessionHandler ...
-func PingSessionHandler(w http.ResponseWriter, r *http.Request) {
+func PingSessionHandler(w http.ResponseWriter, r *http.Request, c *Context) {
 	sessionIdHex := r.PostFormValue("session_id")
 	machineId := r.PostFormValue("machine_id")
 	if len(r.PostForm) != 2 || sessionIdHex == "" || machineId == "" {
@@ -159,8 +160,7 @@ func PingSessionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionId := bson.ObjectIdHex(sessionIdHex)
-	ms := MongoStore{db}
-	err := ms.PingSession(&Session{Id: sessionId, MachineId: machineId})
+	err := c.Store.PingSession(&Session{Id: sessionId, MachineId: machineId})
 	switch err {
 	case nil:
 		fmt.Fprintln(w, sessionIdHex)

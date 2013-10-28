@@ -69,6 +69,13 @@ func NewSession(jid, machineId, xmppvoxVersion string, r *HttpRequest) *Session 
 	}
 }
 
+type Storage interface {
+	InsertInstallation(*Installation) error
+	InsertSession(*Session) error
+	CloseSession(*Session) error
+	PingSession(*Session) error
+}
+
 type MongoStore struct {
 	*mgo.Database
 }
