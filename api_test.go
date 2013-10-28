@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	. "launchpad.net/gocheck"
@@ -17,42 +18,60 @@ import (
 func Test(t *testing.T) { TestingT(t) }
 
 type WebAPISuite struct {
-	Session *mgo.Session
+	Store Storage
 }
 
 var _ = Suite(&WebAPISuite{})
 
-func (s *WebAPISuite) SetUpSuite(c *C) {
-	config, err := ConfigOpen(*configPath)
-	if err != nil {
-		c.Fatal(err)
-	}
-
-	// Set session timeout to fail early and avoid long response times.
-	s.Session, err = mgo.DialWithTimeout(config.Mongo.URL, 5*time.Second)
-	if err != nil {
-		c.Fatal("[MongoDB]", err)
-	}
-
-	db = s.Session.DB(config.Mongo.DB + "_test")
-	// Drop all collections instead of dropping the database to avoid
-	// reallocating the database file on each run
-	names, err := db.CollectionNames()
-	if err != nil {
-		c.Fatal(err)
-	}
-	for _, name := range names {
-		db.C(name).DropCollection()
-	}
+type TestStore struct {
+	Installations map[string]*Installation
+	Sessions      map[bson.ObjectId]*Session
 }
 
-func (s *WebAPISuite) TearDownSuite(c *C) {
-	s.Session.Close()
+func (s *WebAPISuite) SetUpTest(c *C) {
+	s.Store = &TestStore{
+		make(map[string]*Installation),
+		make(map[bson.ObjectId]*Session),
+	}
 }
 
 type Response struct {
 	Body       string
 	StatusCode int
+}
+
+func (ts *TestStore) InsertInstallation(i *Installation) error {
+	if _, ok := ts.Installations[i.MachineId]; ok {
+		// the incantation below makes mgo.IsDup(err) == true
+		return &mgo.QueryError{Code: 11000}
+	}
+	ts.Installations[i.MachineId] = i
+	return nil
+}
+func (ts *TestStore) InsertSession(s *Session) error {
+	if _, ok := ts.Sessions[s.Id]; ok {
+		return errors.New("duplicate")
+	}
+	ts.Sessions[s.Id] = s
+	return nil
+}
+func (ts *TestStore) CloseSession(s *Session) error {
+	if tss, ok := ts.Sessions[s.Id]; ok {
+		if tss.MachineId == s.MachineId && tss.ClosedAt.Equal(time.Time{}) {
+			tss.ClosedAt = bson.Now()
+			return nil
+		}
+	}
+	return mgo.ErrNotFound
+}
+func (ts *TestStore) PingSession(s *Session) error {
+	if tss, ok := ts.Sessions[s.Id]; ok {
+		if tss.MachineId == s.MachineId && tss.ClosedAt.Equal(time.Time{}) {
+			tss.LastPing = bson.Now()
+			return nil
+		}
+	}
+	return mgo.ErrNotFound
 }
 
 func (s *WebAPISuite) handlePost(h contextualHandlerFunc, data map[string]string) *Response {
@@ -66,7 +85,7 @@ func (s *WebAPISuite) handlePost(h contextualHandlerFunc, data map[string]string
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	h(w, req, &Context{&MongoStore{db}})
+	h(w, req, &Context{s.Store})
 	return &Response{
 		Body:       w.Body.String(),
 		StatusCode: w.Code,
@@ -137,9 +156,7 @@ func (s *WebAPISuite) TestNewInstallation(c *C) {
 	)
 	r := s.newInstallation(machineId, xmppvoxVersion, dosvoxInfo, machineInfo)
 	c.Check(r.StatusCode, Equals, http.StatusOK)
-	installation := &Installation{}
-	err := db.C("installations").FindId(machineId).One(installation)
-	c.Assert(err, IsNil)
+	installation := s.Store.(*TestStore).Installations[machineId]
 	c.Check(installation.CreatedAt.IsZero(), Equals, false)
 	c.Check(installation.XMPPVOXVersion, Equals, xmppvoxVersion)
 	c.Check(installation.DosvoxInfo, DeepEquals, dosvoxInfo)
@@ -197,8 +214,7 @@ func (s *WebAPISuite) TestNewInstallationMissingFields(c *C) {
 			"processor": "x86 Family 6 Model 23 Stepping 10, GenuineIntel",
 		}
 	)
-	countBefore, err := db.C("installations").Find(nil).Count()
-	c.Assert(err, IsNil)
+	countBefore := len(s.Store.(*TestStore).Installations)
 	type TestCase struct {
 		MachineId, XMPPVOXVersion string
 		DosvoxInfo, MachineInfo   map[string]string
@@ -211,8 +227,7 @@ func (s *WebAPISuite) TestNewInstallationMissingFields(c *C) {
 		r := s.newInstallation(tc.MachineId, tc.XMPPVOXVersion, tc.DosvoxInfo, tc.MachineInfo)
 		c.Check(r.StatusCode, Equals, http.StatusBadRequest)
 	}
-	countAfter, err := db.C("installations").Find(nil).Count()
-	c.Assert(err, IsNil)
+	countAfter := len(s.Store.(*TestStore).Installations)
 	c.Check(countAfter, Equals, countBefore)
 }
 
@@ -229,9 +244,7 @@ func (s *WebAPISuite) TestNewSession(c *C) {
 	idHex := strings.TrimSpace(r.Body)
 	c.Assert(bson.IsObjectIdHex(idHex), Equals, true)
 	id := bson.ObjectIdHex(idHex)
-	session := &Session{}
-	err := db.C("sessions").FindId(id).One(session)
-	c.Assert(err, IsNil)
+	session := s.Store.(*TestStore).Sessions[id]
 	c.Check(session.CreatedAt.IsZero(), Equals, false)
 	c.Check(session.ClosedAt.IsZero(), Equals, true)
 	c.Check(session.LastPing.IsZero(), Equals, true)
@@ -242,8 +255,7 @@ func (s *WebAPISuite) TestNewSession(c *C) {
 }
 
 func (s *WebAPISuite) TestNewSessionMissingFields(c *C) {
-	countBefore, err := db.C("sessions").Find(nil).Count()
-	c.Assert(err, IsNil)
+	countBefore := len(s.Store.(*TestStore).Sessions)
 	type TestCase struct {
 		JID, MachineId, XMPPVOXVersion string
 	}
@@ -257,8 +269,7 @@ func (s *WebAPISuite) TestNewSessionMissingFields(c *C) {
 		r := s.newSession(tc.JID, tc.MachineId, tc.XMPPVOXVersion)
 		c.Check(r.StatusCode, Equals, http.StatusBadRequest)
 	}
-	countAfter, err := db.C("sessions").Find(nil).Count()
-	c.Assert(err, IsNil)
+	countAfter := len(s.Store.(*TestStore).Sessions)
 	c.Check(countAfter, Equals, countBefore)
 }
 
@@ -286,9 +297,7 @@ func (s *WebAPISuite) TestCloseSession(c *C) {
 	cr := s.closeSession(id, "00:26:cc:18:be:14")
 	c.Check(cr.StatusCode, Equals, http.StatusOK)
 	c.Check(cr.Body, Equals, nr.Body)
-	session := &Session{}
-	err := db.C("sessions").FindId(id).One(session)
-	c.Assert(err, IsNil)
+	session := s.Store.(*TestStore).Sessions[id]
 	c.Check(session.ClosedAt.IsZero(), Equals, false)
 }
 
@@ -313,16 +322,13 @@ func (s *WebAPISuite) TestCloseSessionAlreadyClosed(c *C) {
 	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
 	cr := s.closeSession(id, "00:26:cc:18:be:14")
 	c.Check(cr.StatusCode, Equals, http.StatusOK)
-	session := &Session{}
-	err := db.C("sessions").FindId(id).One(session)
-	c.Assert(err, IsNil)
+	session := s.Store.(*TestStore).Sessions[id]
 	closedAtBefore := session.ClosedAt
 	// Close the same session again
 	cr = s.closeSession(id, "00:26:cc:18:be:14")
 	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
 	// Check session.ClosedAt value
-	err = db.C("sessions").FindId(id).One(session)
-	c.Assert(err, IsNil)
+	session = s.Store.(*TestStore).Sessions[id]
 	closedAtAfter := session.ClosedAt
 	c.Check(closedAtAfter, Equals, closedAtBefore)
 }
@@ -342,9 +348,7 @@ func (s *WebAPISuite) TestPingSession(c *C) {
 	cr := s.pingSession(id, "00:26:cc:18:be:14")
 	c.Check(cr.StatusCode, Equals, http.StatusOK)
 	c.Check(cr.Body, Equals, nr.Body)
-	session := &Session{}
-	err := db.C("sessions").FindId(id).One(session)
-	c.Assert(err, IsNil)
+	session := s.Store.(*TestStore).Sessions[id]
 	c.Check(session.LastPing.IsZero(), Equals, false)
 }
 
@@ -369,16 +373,13 @@ func (s *WebAPISuite) TestPingSessionAlreadyClosed(c *C) {
 	id := bson.ObjectIdHex(strings.TrimSpace(nr.Body))
 	cr := s.closeSession(id, "00:26:cc:18:be:14")
 	c.Check(cr.StatusCode, Equals, http.StatusOK)
-	session := &Session{}
-	err := db.C("sessions").FindId(id).One(session)
-	c.Assert(err, IsNil)
+	session := s.Store.(*TestStore).Sessions[id]
 	lastPingBefore := session.LastPing
 	// PING closed session
 	cr = s.pingSession(id, "00:26:cc:18:be:14")
 	c.Check(cr.StatusCode, Equals, http.StatusBadRequest)
 	// Check session.LastPing value
-	err = db.C("sessions").FindId(id).One(session)
-	c.Assert(err, IsNil)
+	session = s.Store.(*TestStore).Sessions[id]
 	lastPingAfter := session.LastPing
 	c.Check(lastPingAfter, Equals, lastPingBefore)
 }
@@ -389,17 +390,14 @@ func (s *WebAPISuite) TestPingSessionTwice(c *C) {
 	// First PING
 	cr := s.pingSession(id, "00:26:cc:18:be:14")
 	c.Check(cr.StatusCode, Equals, http.StatusOK)
-	session := &Session{}
-	err := db.C("sessions").FindId(id).One(session)
-	c.Assert(err, IsNil)
+	session := s.Store.(*TestStore).Sessions[id]
 	lastPingBefore := session.LastPing
 	middleTime := bson.Now()
 	// Second PING
 	cr = s.pingSession(id, "00:26:cc:18:be:14")
 	c.Check(cr.StatusCode, Equals, http.StatusOK)
 	// Check session.LastPing value
-	err = db.C("sessions").FindId(id).One(session)
-	c.Assert(err, IsNil)
+	session = s.Store.(*TestStore).Sessions[id]
 	lastPingAfter := session.LastPing
 	// Check that lastPingBefore <= middleTime <= lastPingAfter
 	c.Check(lastPingBefore.After(middleTime) || middleTime.After(lastPingAfter), Equals, false)
