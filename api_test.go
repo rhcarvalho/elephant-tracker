@@ -7,8 +7,8 @@ import (
 	"labix.org/v2/mgo"
 	"labix.org/v2/mgo/bson"
 	. "launchpad.net/gocheck"
-	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -19,7 +19,7 @@ import (
 func Test(t *testing.T) { TestingT(t) }
 
 type WebAPISuite struct {
-	WebRoot string
+	Server  *httptest.Server
 	Session *mgo.Session
 }
 
@@ -48,32 +48,17 @@ func (s *WebAPISuite) SetUpSuite(c *C) {
 		db.C(name).DropCollection()
 	}
 
-	// Listen on any available port assigned by the system
-	s.listenAndServe("localhost:0", APIHandler(), c)
+	s.Server = httptest.NewServer(APIHandler())
 }
 
 func (s *WebAPISuite) TearDownSuite(c *C) {
+	s.Server.Close()
 	s.Session.Close()
-}
-
-func (s *WebAPISuite) listenAndServe(addr string, handler http.Handler, c *C) {
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		c.Fatal(err)
-	}
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: handler,
-	}
-	s.WebRoot = l.Addr().String()
-	go func() {
-		c.Fatal(srv.Serve(l))
-	}()
 }
 
 // postForm is a helper to http.PostForm that prepends the address of the test server to form the URL.
 func (s *WebAPISuite) postForm(path string, data url.Values) (resp *http.Response, err error) {
-	url := fmt.Sprintf("http://%s%s", s.WebRoot, path)
+	url := fmt.Sprintf("%s%s", s.Server.URL, path)
 	return http.PostForm(url, data)
 }
 
